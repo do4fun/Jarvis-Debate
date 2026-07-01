@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+rapports/analyses/
+rapports/checkpoints/
+rapports/sessions/
+.superpowers/
