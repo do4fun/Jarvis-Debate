@@ -156,7 +156,7 @@ def _classify_questions(client: Anthropic, questions: list[str], config: DebateC
     response = client.messages.create(
         model=config.agent_model,
         max_tokens=16,
-        messages=[{"role": "user", "content": f"""These {len(questions)} questions will be analyzed by financial experts:
+        messages=[{"role": "user", "content": f"""These {len(questions)} questions will be analyzed by subject matter experts:
 
 {numbered}
 
@@ -774,6 +774,8 @@ def _run_single_debate(
             session_log.log_conflict(conflict_topic)
             if cp:
                 _update_cp(cp, "conflict_detection", 0, -1, states)
+    if not conflict_topic and cp and cp.argument_graph_data:
+        conflict_topic = (cp.argument_graph_data or {}).get("debate_topic", "")
 
     # Phase argument_graph
     graph = None
