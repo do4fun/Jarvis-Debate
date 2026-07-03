@@ -24,9 +24,14 @@ domains/finance/   — Domaine finance (exemple)
   agents/          — 5 agents spécialisés
   models.py        — ConsensusReport schema
   finance_config.py — build_finance_config() → DebateConfig prêt à l'emploi (dans jarvis/)
-
-agents/            — Répertoire par défaut (copie de domains/finance/agents/)
 ```
+
+**Règle stricte — emplacement des agents** : aucun agent propre à un domaine ne doit
+être défini à la racine du projet. Les agents utilisés dans un débat sont toujours
+chargés depuis `domains/<domaine>/agents/` (via `AGENTS_DIR` dans `.env`, cf.
+`jarvis/loader.py`). Un éventuel répertoire `agents/` à la racine n'est réservé qu'à
+des agents transverses, non spécifiques à un domaine (recherche, pré-traitement de
+données) — jamais à des agents participant à un débat.
 
 ## Principes de développement
 

@@ -62,4 +62,21 @@ def build_finance_config() -> DebateConfig:
     cfg.synthesis_prompt = ORCHESTRATOR_SYSTEM
     cfg.output_schema = CONSENSUS_REPORT_SCHEMA
     cfg.output_pydantic_model = ConsensusReport
+
+    # Consensus pondéré par la confiance (Yin 2025 §3.3.4) — critères de stance v_i(o)
+    cfg.lambda_weights = {
+        "relevance": 1.0,
+        "confidence": 1.0,
+        "risk_adjusted_impact": 1.0,
+    }
+    # Crédibilité des arguments (§3.3.5) — poids w_s par type de source financière
+    cfg.evidence_source_weights = {
+        "market_data": 1.0,
+        "filing": 0.9,
+        "analyst_rating": 0.8,
+        "public_statement": 0.6,
+    }
+    # theta/alpha/phase_models restent aux valeurs par défaut de load_default_config()
+    # (surchargeables via .env) — le domaine finance peut les redéfinir ici si besoin.
+
     return cfg

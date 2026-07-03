@@ -5,6 +5,7 @@ from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jarvis.argument_graph import ArgumentGraph
+    from jarvis.consensus import ConsensusResult
 
 
 SESSIONS_DIR = Path(__file__).parent.parent / "rapports" / "sessions"
@@ -45,3 +46,21 @@ class SessionLog:
 
     def log_synthesis(self, report: dict) -> None:
         self.log_phase("synthesis", report)
+
+    def log_consensus(self, consensus: "ConsensusResult") -> None:
+        self.log_phase("consensus", asdict(consensus))
+
+    def log_credibility(self, credibility: dict[str, float]) -> None:
+        self.log_phase("credibility", credibility)
+
+    def log_trust_update(
+        self,
+        old_weights: dict[str, float],
+        new_weights: dict[str, float],
+        accuracy_signals: dict[str, float],
+    ) -> None:
+        self.log_phase("trust_update", {
+            "before": old_weights,
+            "after": new_weights,
+            "accuracy_signal": accuracy_signals,
+        })

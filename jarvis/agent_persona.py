@@ -9,7 +9,7 @@ class AgentPersona:
     order: int = 0
     model: Optional[str] = None
     speaking_group: int = 0
-    speaking_mode: str = "sequential"
+    speaking_mode: str = "sequential"  # "sequential" | "parallel" | "dependency"
     trust_weight: float = 1.0
     wait_for: list[str] = field(default_factory=list)
     role: str = "regular"

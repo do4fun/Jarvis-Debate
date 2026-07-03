@@ -5,9 +5,14 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 from anthropic import Anthropic
 
-from .debate_config import DebateConfig
+from .debate_config import DebateConfig, resolve_model
 from .argument_graph import (
     ArgumentGraph, build_argument_graph, detect_conflicts, format_graph_for_synthesis,
+)
+from .evidence import Evidence, argument_credibility
+from .consensus import ConsensusResult, compute_consensus, update_trust_weights
+from .trust_store import (
+    load_trust_weights, resolve_accuracy_signals, save_trust_weights,
 )
 from .session_log import SessionLog
 from .agent_persona import AgentPersona
@@ -63,8 +68,11 @@ class AgentState:
 
 # ── API calls ─────────────────────────────────────────────────────────────────
 
-def _call_agent(client: Anthropic, state: AgentState, user_message: str, config: DebateConfig) -> str:
-    model = state.persona.model or config.agent_model
+def _call_agent(
+    client: Anthropic, state: AgentState, user_message: str, config: DebateConfig,
+    phase: Optional[str] = None,
+) -> str:
+    model = resolve_model(config, phase or "", state.persona.model, is_orchestrator=False)
     state.messages.append({"role": "user", "content": user_message})
     response = client.messages.create(
         model=model,
@@ -77,9 +85,12 @@ def _call_agent(client: Anthropic, state: AgentState, user_message: str, config:
     return text
 
 
-def _call_orchestrator(client: Anthropic, system: str, user_message: str, config: DebateConfig, max_tokens: int = 2048) -> str:
+def _call_orchestrator(
+    client: Anthropic, system: str, user_message: str, config: DebateConfig,
+    max_tokens: int = 2048, phase: Optional[str] = None,
+) -> str:
     response = client.messages.create(
-        model=config.orchestrator_model,
+        model=resolve_model(config, phase or "", None, is_orchestrator=True),
         max_tokens=max_tokens,
         thinking={"type": "adaptive"},
         system=system,
@@ -89,6 +100,41 @@ def _call_orchestrator(client: Anthropic, system: str, user_message: str, config
 
 
 # ── Speaking order ────────────────────────────────────────────────────────────
+
+def _topo_sort_group(group: list["AgentState"], all_names: set[str]) -> list["AgentState"]:
+    """Tri topologique (algorithme de Kahn) des agents d'un groupe selon leur `wait_for`.
+    Lève ValueError sur une dépendance vers un agent inconnu ou sur un cycle."""
+    from collections import deque
+
+    by_name = {s.persona.name: s for s in group}
+    indegree = {s.persona.name: 0 for s in group}
+    adj: dict[str, list[str]] = {s.persona.name: [] for s in group}
+    for s in group:
+        for dep in s.persona.wait_for:
+            if dep not in all_names:
+                raise ValueError(
+                    f"Agent '{s.persona.name}' wait_for référence un agent inconnu '{dep}'."
+                )
+            if dep in by_name:
+                adj[dep].append(s.persona.name)
+                indegree[s.persona.name] += 1
+
+    queue = deque(sorted(n for n, d in indegree.items() if d == 0))
+    order: list[str] = []
+    while queue:
+        n = queue.popleft()
+        order.append(n)
+        for m in sorted(adj[n]):
+            indegree[m] -= 1
+            if indegree[m] == 0:
+                queue.append(m)
+
+    if len(order) != len(group):
+        stuck = [n for n in indegree if n not in order]
+        raise ValueError(f"Cycle détecté dans le graphe wait_for parmi les agents : {stuck}")
+
+    return [by_name[n] for n in order]
+
 
 def _run_agents_in_speaking_order(
     client: Anthropic,
@@ -103,6 +149,7 @@ def _run_agents_in_speaking_order(
 
     completed: set[str] = set()
     groups = sorted(set(s.persona.speaking_group for s in states))
+    all_names = {s.persona.name for s in states}
 
     for group_id in groups:
         group = [s for s in states if s.persona.speaking_group == group_id]
@@ -122,7 +169,29 @@ def _run_agents_in_speaking_order(
                     completed.add(state.persona.name)
                     continue
                 print(f"  → {state.persona.name} [parallel]...", end=" ", flush=True)
-                _call_agent(client, state, build_prompt_fn(state.persona.name, context_snapshot), config)
+                _call_agent(client, state, build_prompt_fn(state.persona.name, context_snapshot), config, phase=phase)
+                print("OK")
+                completed.add(state.persona.name)
+                if cp:
+                    _update_cp(cp, phase, iteration, idx, states)
+        elif mode == "dependency":
+            ordered_group = _topo_sort_group(group, all_names)
+            for state in ordered_group:
+                # Dépendances hors du groupe courant : toujours vérifiées via `completed`
+                # (les groupes s'exécutent déjà séquentiellement par speaking_group croissant).
+                for dep in state.persona.wait_for:
+                    if dep not in completed:
+                        raise RuntimeError(
+                            f"Agent '{state.persona.name}' attend '{dep}' qui n'a pas encore parlé "
+                            f"(dépendance hors du groupe courant ou ordre invalide)."
+                        )
+                idx = states.index(state)
+                if cp and is_agent_done(cp, phase, iteration, idx):
+                    print(f"  → {state.persona.name}... (repris)")
+                    completed.add(state.persona.name)
+                    continue
+                print(f"  → {state.persona.name} [dependency]...", end=" ", flush=True)
+                _call_agent(client, state, build_prompt_fn(state.persona.name, states), config, phase=phase)
                 print("OK")
                 completed.add(state.persona.name)
                 if cp:
@@ -140,7 +209,7 @@ def _run_agents_in_speaking_order(
                     completed.add(state.persona.name)
                     continue
                 print(f"  → {state.persona.name}...", end=" ", flush=True)
-                _call_agent(client, state, build_prompt_fn(state.persona.name, states), config)
+                _call_agent(client, state, build_prompt_fn(state.persona.name, states), config, phase=phase)
                 print("OK")
                 completed.add(state.persona.name)
                 if cp:
@@ -294,7 +363,7 @@ def _call_da_brainstorm_interject(client: Anthropic, da_state: AgentState, threa
     prompt = _build_da_interject_prompt(thread)
     da_state.messages.append({"role": "user", "content": prompt})
     response = client.messages.create(
-        model=da_state.persona.model or config.agent_model,
+        model=resolve_model(config, "brainstorm", da_state.persona.model, is_orchestrator=False),
         max_tokens=512,
         system=da_state.persona.system_prompt,
         messages=da_state.messages,
@@ -347,7 +416,7 @@ def _run_brainstorming_phase(
             text = _call_orchestrator(
                 client, config.brainstorm_moderator_prompt,
                 _build_orchestrator_brainstorm_open_prompt(questions, thread, iteration, previous_report),
-                config,
+                config, phase="brainstorm",
             )
             thread.append({"role": "orchestrateur_open", "agent": "Orchestrateur", "content": text, "iteration": iteration})
             print("OK")
@@ -396,7 +465,7 @@ def _run_brainstorming_phase(
             text = _call_orchestrator(
                 client, config.brainstorm_moderator_prompt,
                 _build_orchestrator_brainstorm_close_prompt(thread, iteration, config.iterations_brainstorming),
-                config,
+                config, phase="brainstorm",
             )
             thread.append({"role": "orchestrateur_close", "agent": "Orchestrateur", "content": text, "iteration": iteration})
             print("OK")
@@ -476,6 +545,7 @@ def _interactive_question_validation(
             _build_question_enrichment_prompt(questions, previous_report, user_comment),
             config,
             max_tokens=1024,
+            phase="question_analyst",
         )
         print("OK")
 
@@ -515,7 +585,7 @@ def _interactive_plan_validation(
         prompt = _build_planning_prompt(brainstorm_thread, questions)
         if user_comment:
             prompt += f"\n\nCOMMENTAIRE UTILISATEUR (à intégrer dans la révision du plan) :\n{user_comment}"
-        plan = _call_orchestrator(client, config.planner_prompt, prompt, config)
+        plan = _call_orchestrator(client, config.planner_prompt, prompt, config, phase="planning")
         print("OK")
 
         print("\n" + "═" * 44)
@@ -706,6 +776,13 @@ def _run_single_debate(
     else:
         states = [AgentState(persona=p) for p in personas]
 
+    # Poids de confiance persistés (Yin 2025 §3.3.4) — surchage le défaut statique de
+    # l'AgentPersona si une valeur a été apprise lors d'un débat précédent.
+    persisted_weights = load_trust_weights()
+    for s in states:
+        if s.persona.name in persisted_weights:
+            s.persona.trust_weight = persisted_weights[s.persona.name]
+
     plan: str = cp.plan if cp else ""
 
     # Étape A — Validation de la question (avant brainstorming)
@@ -780,10 +857,15 @@ def _run_single_debate(
     # Phase argument_graph
     graph = None
     vote_scores: dict = {}
+    consensus: Optional[ConsensusResult] = None
+    credibility: dict = {}
     if "argument_graph" in config.enabled_phases and conflict_topic:
         if cp and cp.argument_graph_data:
             from .argument_graph import Claim, ArgumentEdge
-            claims = [Claim(**c) for c in cp.argument_graph_data.get("claims", [])]
+            claims = [
+                Claim(**{**c, "evidence": [Evidence(**e) for e in c.get("evidence", [])]})
+                for c in cp.argument_graph_data.get("claims", [])
+            ]
             edges = [ArgumentEdge(**e) for e in cp.argument_graph_data.get("edges", [])]
             graph = ArgumentGraph(
                 debate_topic=cp.argument_graph_data.get("debate_topic", ""),
@@ -791,6 +873,8 @@ def _run_single_debate(
                 edges=edges,
             )
             vote_scores = cp.vote_scores or {}
+            consensus = ConsensusResult(**cp.consensus_data) if cp.consensus_data else None
+            credibility = cp.credibility_scores or {}
             print("\n[Argument Graph]... (repris)")
         else:
             print("\n[Argument Graph]...", end=" ", flush=True)
@@ -798,13 +882,26 @@ def _run_single_debate(
             graph = build_argument_graph(client, config, antitheses_map, conflict_topic)
             trust_weights = {s.persona.name: s.persona.trust_weight for s in states}
             vote_scores = graph.trust_weighted_scores(trust_weights)
+
+            # Consensus pondéré par la confiance (§3.3.4) — v_i(o), S(o), theta
+            consensus = compute_consensus(graph.claims, trust_weights, config.lambda_weights, config.theta)
+            # Crédibilité des arguments (§3.3.5) — C(a_i)
+            credibility = {
+                c.claim_id: argument_credibility(c.evidence, config.evidence_source_weights)
+                for c in graph.claims
+            }
+
             print("OK")
             session_log.log_argument_graph(graph)
             session_log.log_vote_scores(vote_scores)
+            session_log.log_consensus(consensus)
+            session_log.log_credibility(credibility)
             if cp:
                 from dataclasses import asdict
                 cp.argument_graph_data = asdict(graph)
                 cp.vote_scores = vote_scores
+                cp.consensus_data = asdict(consensus)
+                cp.credibility_scores = credibility
                 _update_cp(cp, "argument_graph", 0, -1, states)
 
     # Round 3 — Synthesis
@@ -821,13 +918,13 @@ def _run_single_debate(
         print(f"\n[{tag} — Orchestrator]...", end=" ", flush=True)
 
         if iteration == 0:
-            graph_summary = format_graph_for_synthesis(graph, vote_scores) if graph else ""
+            graph_summary = format_graph_for_synthesis(graph, vote_scores, consensus, credibility) if graph else ""
             user_content = _build_synthesis_prompt(states, graph_summary)
         else:
             user_content = _build_synthesis_refinement_prompt(previous_json, iteration)
 
         response = client.messages.create(
-            model=config.orchestrator_model,
+            model=resolve_model(config, "synthesis", None, is_orchestrator=True),
             max_tokens=4096,
             thinking={"type": "adaptive"},
             system=config.synthesis_prompt,
@@ -854,6 +951,19 @@ def _run_single_debate(
 
     if report is not None:
         session_log.log_synthesis(report.model_dump() if hasattr(report, "model_dump") else report)
+
+    # Mise à jour du poids de confiance (§3.3.4) — w_i(t+1) = (1-alpha)*w_i(t) + alpha*a_i(t)
+    # Idempotent via cp.trust_updated (pas de phase dédiée dans checkpoint.PHASES pour ceci).
+    if not (cp and cp.trust_updated):
+        agent_names = [s.persona.name for s in states]
+        accuracy_signals = resolve_accuracy_signals(session_id, agent_names)
+        old_weights = {s.persona.name: s.persona.trust_weight for s in states}
+        new_weights = update_trust_weights(old_weights, accuracy_signals, config.alpha)
+        save_trust_weights({**load_trust_weights(), **new_weights})  # merge, ne pas écraser les autres agents
+        session_log.log_trust_update(old_weights, new_weights, accuracy_signals)
+        if cp:
+            cp.trust_updated = True
+            cp_save(cp)
 
     # Debate terminé — marque "done" avant suppression pour résister aux erreurs de suppression
     if cp:

@@ -7,6 +7,10 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from jarvis.checkpoint import DebateCheckpoint, find_latest
 from jarvis.debate import DebateResult, run_debate
 from jarvis.finance_config import build_finance_config

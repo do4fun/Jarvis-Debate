@@ -55,6 +55,12 @@ class DebateCheckpoint:
     argument_graph_data: Optional[dict] = None
     vote_scores: Optional[dict] = None
 
+    # Consensus/crédibilité (Yin 2025 §3.3.4-3.3.5) et garde d'idempotence pour la mise à
+    # jour du poids de confiance (pas de phase dédiée dans PHASES pour ce dernier)
+    consensus_data: Optional[dict] = None
+    credibility_scores: Optional[dict] = None
+    trust_updated: bool = False
+
 
 # ── Persistance ───────────────────────────────────────────────────────────────
 
