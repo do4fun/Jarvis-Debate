@@ -25,7 +25,8 @@ class DebateConfig:
     iterations_antithesis: int = 1
     iterations_synthesis: int = 1
     enabled_phases: list[str] = field(default_factory=lambda: [
-        "brainstorm", "thesis", "antithesis", "conflict_detection", "argument_graph", "synthesis"
+        "research", "brainstorm", "thesis", "antithesis",
+        "conflict_detection", "argument_graph", "synthesis",
     ])
     question_analyst_prompt: str = ""
     brainstorm_moderator_prompt: str = ""
@@ -34,6 +35,17 @@ class DebateConfig:
     synthesis_prompt: str = ""
     output_schema: dict = field(default_factory=dict)
     output_pydantic_model: Optional[type] = None
+
+    # Recherche web économe en tokens (jarvis/research.py) — désactivée par défaut.
+    web_search_enabled: bool = False
+    web_search_max_uses: int = 3
+    web_fetch_max_uses: int = 2
+    web_fetch_max_content_tokens: int = 3000
+    web_search_allowed_domains: list[str] = field(default_factory=list)
+    web_search_blocked_domains: list[str] = field(default_factory=list)
+    # Prompts vides → fallback sur les valeurs par défaut domain-agnostic de jarvis/research.py
+    researcher_prompt: str = ""
+    source_validator_prompt: str = ""
 
     # Consensus pondéré par la confiance (Yin 2025, §3.3.4) — v_i(o), S(o), theta
     theta: float = 0.65
@@ -64,10 +76,14 @@ def resolve_model(
     return config.orchestrator_model if is_orchestrator else config.agent_model
 
 
+def _split_env_list(value: str) -> list[str]:
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
 def load_default_config() -> DebateConfig:
     _phase_names = (
-        "brainstorm", "thesis", "antithesis", "conflict_detection",
-        "argument_graph", "synthesis", "planning", "question_analyst",
+        "research", "research_validate", "brainstorm", "thesis", "antithesis",
+        "conflict_detection", "argument_graph", "synthesis", "planning", "question_analyst",
     )
     return DebateConfig(
         agent_model=os.getenv("AGENT_MODEL", "claude-sonnet-4-6"),
@@ -83,4 +99,10 @@ def load_default_config() -> DebateConfig:
             for phase in _phase_names
             if os.getenv(f"MODEL_{phase.upper()}")
         },
+        web_search_enabled=os.getenv("WEB_SEARCH_ENABLED", "").strip().lower() in ("1", "true", "yes"),
+        web_search_max_uses=int(os.getenv("WEB_SEARCH_MAX_USES", "3")),
+        web_fetch_max_uses=int(os.getenv("WEB_FETCH_MAX_USES", "2")),
+        web_fetch_max_content_tokens=int(os.getenv("WEB_FETCH_MAX_CONTENT_TOKENS", "3000")),
+        web_search_allowed_domains=_split_env_list(os.getenv("WEB_SEARCH_ALLOWED_DOMAINS", "")),
+        web_search_blocked_domains=_split_env_list(os.getenv("WEB_SEARCH_BLOCKED_DOMAINS", "")),
     )

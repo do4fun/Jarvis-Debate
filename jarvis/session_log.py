@@ -53,6 +53,9 @@ class SessionLog:
     def log_credibility(self, credibility: dict[str, float]) -> None:
         self.log_phase("credibility", credibility)
 
+    def log_research(self, briefing: str, findings: list[dict]) -> None:
+        self.log_phase("research", {"briefing": briefing, "findings": findings})
+
     def log_trust_update(
         self,
         old_weights: dict[str, float],

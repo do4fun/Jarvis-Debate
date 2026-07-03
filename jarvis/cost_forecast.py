@@ -31,6 +31,8 @@ _BASE_TOKENS: dict[str, tuple[int, int]] = {
     "antithesis_refine": ( 5200,  800),
     "synthesis_init":    (11500, 1000),   # log complet du débat
     "synthesis_refine":  ( 2000, 1000),
+    "research":          ( 1200,  800),   # web_search + web_fetch — extraits ciblés seulement
+    "research_validate": (  800,  400),   # validation des sources (extraits seuls, pas de web)
 }
 
 # Durée estimée par appel (secondes)
@@ -159,6 +161,7 @@ def compute_forecast(
     iter_thesis: int,
     iter_antithesis: int,
     iter_synthesis: int,
+    web_search_enabled: bool = False,
 ) -> Forecast:
     n_debates = n_questions if mode == "sequential" else 1
     lines: list[ForecastLine] = []
@@ -180,6 +183,11 @@ def compute_forecast(
         ))
 
     per_debate_calls: list[tuple] = []
+
+    # Recherche web (avant brainstorming) — 2 appels au total, indépendant du nb d'agents
+    if web_search_enabled:
+        per_debate_calls.append(("Recherche web", "Orchestrateur", 1, orchestrator_model, "research"))
+        per_debate_calls.append(("Validation sources", "Orchestrateur", 1, orchestrator_model, "research_validate"))
 
     # Brainstorming
     per_debate_calls.append(("Brainstorming (init)", "Agent", n_agents, agent_model, "brainstorm_init"))

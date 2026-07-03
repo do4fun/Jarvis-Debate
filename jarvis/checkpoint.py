@@ -13,7 +13,7 @@ from typing import Optional
 CHECKPOINTS_DIR = Path(__file__).parent.parent / "rapports" / "checkpoints"
 
 # Ordre des phases dans le pipeline
-PHASES = ["brainstorm", "planning", "thesis", "antithesis",
+PHASES = ["research", "brainstorm", "planning", "thesis", "antithesis",
           "conflict_detection", "argument_graph", "synthesis"]
 
 
@@ -60,6 +60,10 @@ class DebateCheckpoint:
     consensus_data: Optional[dict] = None
     credibility_scores: Optional[dict] = None
     trust_updated: bool = False
+
+    # Recherche web (jarvis/research.py) — briefing + sources trouvées (validées ou non)
+    research_briefing: Optional[str] = None
+    research_findings: Optional[list[dict]] = None
 
 
 # ── Persistance ───────────────────────────────────────────────────────────────

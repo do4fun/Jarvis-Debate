@@ -14,6 +14,7 @@ from .consensus import ConsensusResult, compute_consensus, update_trust_weights
 from .trust_store import (
     load_trust_weights, resolve_accuracy_signals, save_trust_weights,
 )
+from .research import run_research
 from .session_log import SessionLog
 from .agent_persona import AgentPersona
 from .loader import load_agents
@@ -316,6 +317,7 @@ def _build_orchestrator_brainstorm_open_prompt(
     thread: list[dict],
     iteration: int,
     previous_report: Optional[Any],
+    research_briefing: str = "",
 ) -> str:
     if len(questions) == 1:
         question_block = f"QUESTION: {questions[0]}"
@@ -327,9 +329,11 @@ def _build_orchestrator_brainstorm_open_prompt(
     if previous_report and hasattr(previous_report, "final_action") and hasattr(previous_report, "conviction_score"):
         context = f"\nPRIOR ANALYSIS: {previous_report.final_action}, conviction {previous_report.conviction_score:.0%}.\n"
 
+    research_block = f"\n{research_briefing}\n" if research_briefing else ""
+
     if not thread:
         return f"""{question_block}
-{context}
+{context}{research_block}
 Open the brainstorming session. Frame the question(s), identify the most productive analytical angles, and invite the analysts to explore freely. Be stimulating — pose rich questions, do not give answers."""
     else:
         thread_text = _format_thread(thread)
@@ -380,6 +384,7 @@ def _run_brainstorming_phase(
     previous_report: Optional[Any],
     cp: Optional[DebateCheckpoint],
     config: DebateConfig,
+    research_briefing: str = "",
 ) -> list[dict]:
     """
     Brainstorming avec thread partagé.
@@ -415,7 +420,9 @@ def _run_brainstorming_phase(
             print(f"  [Orchestrateur — ouverture]...", end=" ", flush=True)
             text = _call_orchestrator(
                 client, config.brainstorm_moderator_prompt,
-                _build_orchestrator_brainstorm_open_prompt(questions, thread, iteration, previous_report),
+                _build_orchestrator_brainstorm_open_prompt(
+                    questions, thread, iteration, previous_report, research_briefing,
+                ),
                 config, phase="brainstorm",
             )
             thread.append({"role": "orchestrateur_open", "agent": "Orchestrateur", "content": text, "iteration": iteration})
@@ -617,6 +624,7 @@ def _build_round1_prompt(
     questions: list[str],
     plan: str,
     previous_report: Optional[Any] = None,
+    research_briefing: str = "",
 ) -> str:
     if len(questions) == 1:
         question_block = f"QUESTION: {questions[0]}"
@@ -633,12 +641,14 @@ CONTEXT FROM PREVIOUS ANALYSIS (build on this, do not repeat it):
 - Key conclusions: {agreements}
 """
 
+    research_block = f"\n{research_briefing}\n" if research_briefing else ""
+
     return f"""{question_block}
-{context_block}
+{context_block}{research_block}
 DEBATE PLAN (shared with all analysts):
 {plan}
 
-THESIS PHASE — based on your brainstorm and the debate plan above, produce your complete, well-structured thesis. Be precise, quantified where possible, and defend a clear position."""
+THESIS PHASE — based on your brainstorm and the debate plan above, produce your complete, well-structured thesis. Be precise, quantified where possible, and defend a clear position. When citing a fact from CONTEXT above, mention its source briefly."""
 
 
 def _build_thesis_refinement_prompt(iteration: int) -> str:
@@ -794,8 +804,31 @@ def _run_single_debate(
             cp.confirmed_questions = questions
             cp_save(cp)
 
+    # Phase research — recherche web économe en tokens (jarvis/research.py). Un seul point
+    # d'ancrage, avant le brainstorming : le briefing résultant (texte compact, sources déjà
+    # validées) irrigue ensuite brainstorming + thesis sans recherche supplémentaire.
+    research_briefing = ""
+    if "research" in config.enabled_phases and config.web_search_enabled:
+        if cp and is_orchestrator_done(cp, "research"):
+            research_briefing = cp.research_briefing or ""
+            print("\n[Recherche web]... (repris)")
+        else:
+            print("\n[Recherche web]...", end=" ", flush=True)
+            question_text = " / ".join(questions)
+            research_briefing, findings = run_research(client, config, question_text)
+            print("OK")
+            from dataclasses import asdict as _asdict
+            findings_data = [_asdict(f) for f in findings]
+            session_log.log_research(research_briefing, findings_data)
+            if cp:
+                cp.research_briefing = research_briefing
+                cp.research_findings = findings_data
+                _update_cp(cp, "research", 0, -1, states)
+
     # Phase 0 — Brainstorming (thread partagé, DA, orchestrateur modérateur)
-    brainstorm_thread = _run_brainstorming_phase(client, states, questions, previous_report, cp, config)
+    brainstorm_thread = _run_brainstorming_phase(
+        client, states, questions, previous_report, cp, config, research_briefing,
+    )
     session_log.log_brainstorm(brainstorm_thread)
 
     # Étape B — Validation du plan (après brainstorming, interactive)
@@ -809,7 +842,7 @@ def _run_single_debate(
 
         def _make_thesis_prompt(agent_name: str, current_states: list, _iter=iteration) -> str:
             if _iter == 0:
-                return _build_round1_prompt(questions, plan, previous_report)
+                return _build_round1_prompt(questions, plan, previous_report, research_briefing)
             return _build_thesis_refinement_prompt(_iter)
 
         _run_agents_in_speaking_order(client, states, _make_thesis_prompt, "thesis", iteration, cp, config)
@@ -1017,6 +1050,7 @@ def run_debate(
         iter_thesis=config.iterations_thesis,
         iter_antithesis=config.iterations_antithesis,
         iter_synthesis=config.iterations_synthesis,
+        web_search_enabled=config.web_search_enabled,
     )
 
     def _make_cp(debate_index: int, previous_report: Optional[Any]) -> DebateCheckpoint:
@@ -1026,7 +1060,7 @@ def run_debate(
             mode=mode,
             n_debates=n_debates,
             debate_index=debate_index,
-            phase="brainstorm",
+            phase="research",
             phase_iteration=0,
             agent_index=-1,
             previous_report=previous_report.model_dump() if previous_report and hasattr(previous_report, "model_dump") else None,

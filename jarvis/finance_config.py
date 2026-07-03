@@ -75,8 +75,20 @@ def build_finance_config() -> DebateConfig:
         "filing": 0.9,
         "analyst_rating": 0.8,
         "public_statement": 0.6,
+        "web_search": 0.7,
     }
     # theta/alpha/phase_models restent aux valeurs par défaut de load_default_config()
     # (surchargeables via .env) — le domaine finance peut les redéfinir ici si besoin.
+
+    # Recherche web (jarvis/research.py) — sources de confiance pour le domaine finance.
+    # researcher_prompt/source_validator_prompt restent vides : le domaine n'a pas besoin de
+    # spécialiser la méthodologie de recherche (générique), seulement les domaines autorisés.
+    cfg.web_search_enabled = True
+    cfg.web_search_max_uses = 3
+    cfg.web_fetch_max_uses = 2
+    cfg.web_search_allowed_domains = [
+        "reuters.com", "bloomberg.com", "wsj.com", "ft.com",
+        "federalreserve.gov", "sec.gov", "imf.org", "bis.org",
+    ]
 
     return cfg
