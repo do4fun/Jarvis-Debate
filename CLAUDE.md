@@ -74,3 +74,29 @@ validation indépendante des sources, domaines de confiance configurables).
    activée) — `jarvis/finance_config.py` sert de référence
 4. Pointer `AGENTS_DIR=domains/<domaine>/agents` dans `.env`
 5. Appeler `run_debate(questions, config=build_<domaine>_config())` depuis `main.py`
+
+## Wiki Knowledge Base
+
+Un vault Obsidian (Mode B — GitHub/Repository) documente l'architecture de ce projet, dans
+ce même répertoire :
+
+```
+wiki/modules/       — une page par module jarvis/*.py
+wiki/components/    — structures de données réutilisables (AgentPersona, DebateConfig, ...)
+wiki/decisions/     — ADR : pourquoi chaque choix d'architecture a été fait
+wiki/dependencies/  — anthropic, pydantic, python-dotenv
+wiki/flows/         — séquences complètes (pipeline de débat, reprise sur interruption)
+_meta/              — index.md, log.md, hot.md, overview.md
+```
+
+Quand une modification touche le protocole (`jarvis/`) ou une décision d'architecture :
+
+1. Lire `_meta/hot.md` d'abord (contexte récent, ~500 mots).
+2. Si besoin de plus, lire `_meta/index.md` (catalogue complet).
+3. Mettre à jour la page de module concernée + `_meta/hot.md` + `_meta/log.md` après tout
+   changement significatif.
+4. Une décision d'architecture nouvelle → nouvelle page `wiki/decisions/NNN-titre.md`
+   (format ADR : Contexte / Décision / Alternatives considérées / Conséquences).
+
+Ne PAS lire le wiki pour des questions de syntaxe Python générales ou des tâches qui ne
+touchent pas l'architecture — le code source fait toujours foi en cas de divergence.

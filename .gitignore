@@ -5,4 +5,13 @@ __pycache__/
 rapports/analyses/
 rapports/checkpoints/
 rapports/sessions/
+rapports/trust_weights.json
+rapports/trust_feedback.json
 .superpowers/
+
+# Obsidian vault (wiki/ — voir _meta/index.md)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.smart-connections/
+.obsidian-git-data
+.trash/

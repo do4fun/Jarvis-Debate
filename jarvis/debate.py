@@ -2,6 +2,7 @@ import copy
 import json
 import os
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Optional
 from anthropic import Anthropic
 
@@ -23,6 +24,12 @@ from .checkpoint import (
     AgentSnapshot, DebateCheckpoint,
     delete as cp_delete, is_agent_done, is_orchestrator_done, save as cp_save,
 )
+
+
+def _now() -> str:
+    """Horodatage ISO 8601 (secondes) — utilisé pour pouvoir reconstruire l'ordre
+    chronologique exact des tours du brainstorm_thread (une conversation multi-agents)."""
+    return datetime.now().isoformat(timespec="seconds")
 
 
 def _inline_refs(schema: dict) -> dict:
@@ -425,7 +432,7 @@ def _run_brainstorming_phase(
                 ),
                 config, phase="brainstorm",
             )
-            thread.append({"role": "orchestrateur_open", "agent": "Orchestrateur", "content": text, "iteration": iteration})
+            thread.append({"role": "orchestrateur_open", "agent": "Orchestrateur", "content": text, "iteration": iteration, "timestamp": _now()})
             print("OK")
             if cp:
                 cp.brainstorm_thread = thread
@@ -443,7 +450,7 @@ def _run_brainstorming_phase(
                 _build_brainstorm_turn_prompt(questions, thread, previous_report, iteration),
                 config,
             )
-            thread.append({"role": "agent", "agent": state.persona.name, "content": response, "iteration": iteration})
+            thread.append({"role": "agent", "agent": state.persona.name, "content": response, "iteration": iteration, "timestamp": _now()})
             print("OK")
 
             # DA : intervention optionnelle après chaque agent régulier
@@ -457,6 +464,7 @@ def _run_brainstorming_phase(
                         "content": da_resp,
                         "iteration": iteration,
                         "after_agent": state.persona.name,
+                        "timestamp": _now(),
                     })
 
             # Checkpoint après l'agent + son éventuelle intervention DA
@@ -474,7 +482,7 @@ def _run_brainstorming_phase(
                 _build_orchestrator_brainstorm_close_prompt(thread, iteration, config.iterations_brainstorming),
                 config, phase="brainstorm",
             )
-            thread.append({"role": "orchestrateur_close", "agent": "Orchestrateur", "content": text, "iteration": iteration})
+            thread.append({"role": "orchestrateur_close", "agent": "Orchestrateur", "content": text, "iteration": iteration, "timestamp": _now()})
             print("OK")
             if cp:
                 cp.brainstorm_thread = thread

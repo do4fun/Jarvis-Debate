@@ -1,5 +1,6 @@
 import json
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -12,13 +13,25 @@ SESSIONS_DIR = Path(__file__).parent.parent / "rapports" / "sessions"
 
 
 class SessionLog:
+    """
+    Log complet d'une session de débat.
+
+    `phases` conserve un instantané par phase (comportement historique, une entrée par
+    nom de phase). `timeline` est une liste ordonnée chronologiquement (un élément par
+    appel à log_phase, y compris les phases loguées plusieurs fois) — c'est elle qui
+    permet de reconstruire la séquence exacte des événements d'une session, y compris
+    entre plusieurs sessions si on fusionne leurs fichiers par timestamp.
+    """
+
     def __init__(self, session_id: str) -> None:
         SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
         self.path = SESSIONS_DIR / f"{session_id}_full.json"
-        self._data: dict = {"session_id": session_id, "phases": {}}
+        self._data: dict = {"session_id": session_id, "phases": {}, "timeline": []}
 
     def log_phase(self, phase: str, data: Any) -> None:
+        timestamp = datetime.now().isoformat(timespec="seconds")
         self._data["phases"][phase] = data
+        self._data["timeline"].append({"phase": phase, "timestamp": timestamp})
         self.path.write_text(
             json.dumps(self._data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
