@@ -5,6 +5,18 @@ entrées vont en HAUT du fichier, les entrées passées ne sont jamais modifiée
 
 ---
 
+## 2026-07-03T20:25:00 — DOC UPDATE + PUSH
+
+`README.md` mis à jour : fonctionnalité `timeline` chronologique de `SessionLog` ajoutée à
+la liste des fonctionnalités, nouvelle section « Wiki d'architecture » pointant vers ce
+vault. `_meta/hot.md` rafraîchie (état des tests, branches, tâches actives).
+
+Contexte : ce commit fait suite à celui de 00:40 (scaffold du vault) et à l'ajout de
+`SessionLog.timeline`/timestamps par tour de brainstorm, tous deux committés ensemble sur
+une nouvelle branche `dev` (`28ab934`, poussée sur `origin/dev`) — `main` n'a pas bougé.
+
+---
+
 ## 2026-07-03T00:40:00 — SCAFFOLD
 
 Vault initialisé (Mode B — GitHub/Repository) directement dans le repo `jarvis-debate`.

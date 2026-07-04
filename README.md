@@ -14,7 +14,7 @@ tokens, et consensus pondéré par la confiance des agents (Yin 2025).
 - **Poids de confiance dynamique et persistant** : `trust_weight` mis à jour après chaque débat (moyenne mobile exponentielle) et conservé entre les sessions dans `rapports/trust_weights.json`
 - **Crédibilité des arguments** (§3.3.5) : score `C(a_i)` combinant fiabilité et fraîcheur des preuves citées par les agents
 - **Reprise sur interruption** : checkpoint après chaque appel API, y compris la phase de recherche web
-- **Log complet** : toutes les étapes dans `rapports/sessions/{session_id}_full.json`
+- **Log complet et chronologique** : toutes les étapes dans `rapports/sessions/{session_id}_full.json`, avec une `timeline` horodatée (un timestamp par appel de phase, jamais écrasé) permettant de reconstruire l'ordre exact des événements d'une session — y compris tour par tour dans le `brainstorm_thread`
 
 ## Installation
 
@@ -71,6 +71,13 @@ Voir `PLAN_recherche_web.md` pour le détail de l'architecture (pipeline en 2 ap
 ```bash
 python run_tests.py
 ```
+
+## Wiki d'architecture
+
+Un vault Obsidian (Mode B — GitHub/Repository) documente l'architecture du projet dans ce
+même dépôt (`wiki/`, `_meta/`). Ouvrir `c:\dev\jarvis-debate` comme vault dans Obsidian, ou
+lire directement `_meta/hot.md` (contexte récent) puis `_meta/index.md` (catalogue complet).
+Voir `CLAUDE.md`, section « Wiki Knowledge Base », pour les conventions de mise à jour.
 
 ## Ajouter un nouveau domaine
 
